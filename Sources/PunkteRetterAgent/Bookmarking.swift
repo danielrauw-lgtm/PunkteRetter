@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import PunkteRetterCore
 
 enum Bookmarking {
     static func make(for url: URL) throws -> Data {
