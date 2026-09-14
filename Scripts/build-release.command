@@ -3,8 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 VERSION="1.2.0"
-BUILD="122"
-PACKAGE_VERSION="1.2.0.122"
+BUILD="123"
+PACKAGE_VERSION="1.2.0.123"
 OUT="$ROOT/dist"
 APP="$OUT/PunkteRetter.app"
 PKGROOT="$OUT/pkgroot"
@@ -36,8 +36,10 @@ if [[ -n "$APP_IDENTITY" ]]; then
   codesign --force --options runtime --timestamp --entitlements Resources/PunkteRetter.entitlements --sign "$APP_IDENTITY" "$APP"
   codesign --verify --deep --strict --verbose=2 "$APP"
 else
-  codesign --force --deep --sign - "$APP"
-  echo "HINWEIS: Keine Developer-ID-App-Identität angegeben; App wurde nur ad-hoc signiert." >&2
+  codesign --force --options runtime --entitlements Resources/PunkteRetter.entitlements --sign - "$APP/Contents/Resources/PunkteRetterAgent"
+  codesign --force --options runtime --entitlements Resources/PunkteRetter.entitlements --sign - "$APP"
+  codesign --verify --deep --strict --verbose=2 "$APP"
+  echo "HINWEIS: Keine Developer-ID-App-Identität angegeben; App und Agent wurden nur ad-hoc signiert." >&2
 fi
 
 cp -R "$APP" "$PKGROOT/PunkteRetter.app"

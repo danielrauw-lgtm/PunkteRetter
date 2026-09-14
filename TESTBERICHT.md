@@ -4,7 +4,9 @@ Stand: 2026-09-14
 
 ## Verbindlicher Status
 
-Version `1.2.0`, Kandidaten-Build `122`.
+Version `1.2.0`, Kandidaten-Build `123`, Paketversion `1.2.0.123`.
+
+Build 123 wurde notwendig, weil nach Build 122 zwei funktionale Korrekturen vorgenommen wurden: Der Ruhemodus pausiert nun tatsächlich automatische Backup-Versuche, und ausstehende Donnerstag-Warnungen bleiben über einen ISO-Wochenwechsel hinweg fällig. Zusätzlich werden die Apple-Events-Entitlements und die Hardened Runtime des ad-hoc Test-Builds geprüft.
 
 Der Stand ist ein **CI-Release-Candidate** und noch kein freigegebener Endanwender-Release. Er bleibt auf dem Arbeitsbranch `punkte-retter-1.2-folder-snapshots`. Es erfolgt weder ein Merge nach `main` noch ein Tag oder Release ohne ausdrückliche Freigabe.
 
@@ -39,10 +41,14 @@ Der Stand ist ein **CI-Release-Candidate** und noch kein freigegebener Endanwend
 - Prozesssperre
 - Mail-Timeout, Erfolg vor der Timeout-Grenze, Signalabbruch und Fehler-Exitcode
 - Warnzeitpunkt Donnerstag exakt 14:45 Uhr
+- Ruhemodus pausiert automatische Versuche, lässt ein manuelles Backup aber zu
+- überfällige und vorgemerkte Warnungen über einen ISO-Wochenwechsel
+- direkte Einzeldatei-Änderung, Entfernung und Hash-Abweichung während des Backups
+- Retention-Grenzen bei 25, 26 und 27 gültigen Ständen
 
 ## Installerprüfung in GitHub Actions
 
-Der vollständige öffentliche Workflow [Run 34877249727](https://github.com/danielrauw-lgtm/PunkteRetter/actions/runs/34877249727) für Commit `858c9c1c82a987ff9e7dc9b59c5bae11222e4d6c` wurde am 14.09.2026 grün abgeschlossen.
+Der Workflow `.github/workflows/macos-build.yml` läuft für jeden Commit des Arbeitsbranches. Ein bestimmter Lauf wird hier bewusst nicht fest eingetragen, weil jede Aktualisierung dieses Berichts selbst einen neuen Commit und damit einen neuen Prüflauf erzeugt. Als Nachweis gilt ausschließlich ein vollständig grüner Workflow, dessen Head-SHA dem ausgelieferten Commit entspricht; Run, Commit und SHA-256 des ausgelieferten ZIP werden im Übergabebericht genannt.
 
 Der macOS-Job hat dabei:
 
@@ -50,10 +56,10 @@ Der macOS-Job hat dabei:
 2. App und Agent als Universal Binary geprüft.
 3. den PKG-Inhalt und `install-location="/Applications"` geprüft.
 4. den fertigen PKG tatsächlich mit `sudo installer -pkg … -target /` installiert.
-5. anschließend App, Agent, Version 1.2.0, Build 122, LaunchAgent, Eigentümer und den Ausschluss von `/Applications/Applications` geprüft.
+5. anschließend App, Agent, Version 1.2.0, Build 123, LaunchAgent, Eigentümer und den Ausschluss von `/Applications/Applications` geprüft.
 6. nachgewiesen, dass bestehende Daten unter `~/Library/Application Support/PunkteRetter` erhalten bleiben.
 
-Auch Core-Tests sowie App- und Agent-Kompilierung auf dem nativen Intel-Runner waren erfolgreich. Das geprüfte Artefakt `PunkteRetter-1.2.0-Build122-INSTALLER-VERIFIED` wurde für sieben Tage bereitgestellt. Es ist ad-hoc signiert und nicht notarisiert.
+Auch Core-Tests sowie App- und Agent-Kompilierung laufen auf einem nativen Intel-Runner. Das geprüfte Artefakt heißt `PunkteRetter-1.2.0-Build123-INSTALLER-VERIFIED`. App und Agent sind darin ad-hoc mit Hardened Runtime und dem erforderlichen Apple-Events-Entitlement signiert; der PKG-Installer selbst ist nicht mit einer Developer ID signiert und nicht notarisiert.
 
 ## Nicht durch CI beweisbar
 

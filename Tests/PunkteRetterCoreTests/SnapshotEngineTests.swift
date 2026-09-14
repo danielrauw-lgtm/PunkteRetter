@@ -182,6 +182,63 @@ final class SnapshotEngineTests: XCTestCase {
         XCTAssertTrue(try fm.contentsOfDirectory(atPath: work.destination.path).isEmpty)
     }
 
+    func testSingleFileChangedDuringBackupIsRejected() throws {
+        let work = try workspace()
+        defer { try? fm.removeItem(at: work.root) }
+        let sourceFile = work.source.appendingPathComponent("Einzel.xlsx")
+        try write("vorher", to: sourceFile)
+
+        XCTAssertThrowsError(try snapshot(
+            source: sourceFile,
+            destination: work.destination,
+            kind: .file,
+            hooks: SnapshotTestHooks(afterCopy: { _ in
+                try self.write("nachher", to: sourceFile)
+            })
+        )) { error in
+            XCTAssertEqual(error as? SnapshotEngineError, .sourceChanging)
+        }
+        XCTAssertTrue(try fm.contentsOfDirectory(atPath: work.destination.path).isEmpty)
+    }
+
+    func testSingleFileRemovedDuringBackupIsRejected() throws {
+        let work = try workspace()
+        defer { try? fm.removeItem(at: work.root) }
+        let sourceFile = work.source.appendingPathComponent("Einzel.xlsx")
+        try write("daten", to: sourceFile)
+
+        XCTAssertThrowsError(try snapshot(
+            source: sourceFile,
+            destination: work.destination,
+            kind: .file,
+            hooks: SnapshotTestHooks(afterCopy: { _ in
+                try self.fm.removeItem(at: sourceFile)
+            })
+        ))
+        XCTAssertTrue(try fm.contentsOfDirectory(atPath: work.destination.path).isEmpty)
+    }
+
+    func testSingleFileHashMismatchRejectsSnapshot() throws {
+        let work = try workspace()
+        defer { try? fm.removeItem(at: work.root) }
+        let sourceFile = work.source.appendingPathComponent("Einzel.xlsx")
+        try write("original", to: sourceFile)
+
+        XCTAssertThrowsError(try snapshot(
+            source: sourceFile,
+            destination: work.destination,
+            kind: .file,
+            hooks: SnapshotTestHooks(afterCopy: { payload in
+                try self.write("beschädigt", to: payload)
+            })
+        )) { error in
+            guard case SnapshotEngineError.hashMismatch = error else {
+                return XCTFail("Erwartet wurde eine Hash-Abweichung, erhalten: \(error)")
+            }
+        }
+        XCTAssertTrue(try fm.contentsOfDirectory(atPath: work.destination.path).isEmpty)
+    }
+
     func testEmptyFolderIsAValidSnapshot() throws {
         let work = try workspace()
         defer { try? fm.removeItem(at: work.root) }
@@ -207,6 +264,17 @@ final class SnapshotEngineTests: XCTestCase {
 
         XCTAssertEqual(result.fileCount, 1)
         XCTAssertEqual(names, ["Noten.xlsx", VerifiedSnapshotEngine.directoryManifestFileName])
+    }
+
+    func testReservedManifestNameRejectsSourceFolder() throws {
+        let work = try workspace()
+        defer { try? fm.removeItem(at: work.root) }
+        try write("fremd", to: work.source.appendingPathComponent(VerifiedSnapshotEngine.directoryManifestFileName))
+
+        XCTAssertThrowsError(try snapshot(source: work.source, destination: work.destination, kind: .directory)) { error in
+            XCTAssertEqual(error as? SnapshotEngineError, .reservedEntry(VerifiedSnapshotEngine.directoryManifestFileName))
+        }
+        XCTAssertTrue(try fm.contentsOfDirectory(atPath: work.destination.path).isEmpty)
     }
 
     func testIgnoredOfficeFileCanAppearDuringStabilityCheck() throws {

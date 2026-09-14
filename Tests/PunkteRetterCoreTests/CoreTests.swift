@@ -35,7 +35,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.component(.hour, from: w), 14)
         XCTAssertEqual(c.component(.minute, from: w), 45)
 
-        var state = RuntimeState()
+        let state = RuntimeState()
         XCTAssertFalse(Schedule.isWarningDue(now: date("2026-09-10T14:44:59+02:00"), state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
         XCTAssertTrue(Schedule.isWarningDue(now: date("2026-09-10T14:45:00+02:00"), state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
     }
@@ -93,6 +93,25 @@ final class CoreTests: XCTestCase {
         let deleted = Retention.recordsToDelete(a + b)
         XCTAssertEqual(deleted.count, 2)
         XCTAssertEqual(Set(deleted.compactMap(\.itemID)), Set([first, second]))
+    }
+
+    func testRetentionDoesNothingAt25Or26ValidSnapshots() {
+        let base = date("2026-01-01T00:00:00Z")
+        let itemID = UUID()
+        let records = (0..<26).map { index in
+            BackupRecord(
+                itemID: itemID,
+                sourceDisplayName: "A.pdf",
+                week: WeekID(yearForWeekOfYear: 2026, weekOfYear: index + 1),
+                createdAt: base.addingTimeInterval(Double(index) * 60),
+                fileName: "a\(index).pdf",
+                sourceSHA256: "hash-\(index)",
+                byteCount: 1,
+                cloudSyncState: .confirmed
+            )
+        }
+        XCTAssertTrue(Retention.recordsToDelete(Array(records.prefix(25))).isEmpty)
+        XCTAssertTrue(Retention.recordsToDelete(records).isEmpty)
     }
 
     func testSafeRetentionDeletesOldestValidSnapshotButNeverForeignRecord() {
@@ -213,9 +232,40 @@ final class CoreTests: XCTestCase {
         let selected = date("2026-09-10T00:00:00+02:00")
         let end = Schedule.quietModeEndOfDay(for: selected, calendar: c)
         XCTAssertEqual(end, date("2026-09-11T00:00:00+02:00"))
-        var state = RuntimeState()
+        let state = RuntimeState()
         let thursdayAfternoon = date("2026-09-10T15:00:00+02:00")
         XCTAssertFalse(Schedule.isWarningDue(now: thursdayAfternoon, state: state, quietModeUntil: selected, automationEnabled: true, calendar: c))
+    }
+
+    func testQuietModePausesAutomaticBackupButAllowsManualBackup() {
+        let c = brusselsCalendar()
+        let now = date("2026-09-09T10:02:00+02:00")
+        let quietDate = date("2026-09-09T00:00:00+02:00")
+
+        XCTAssertFalse(Schedule.shouldRunBackupAttempt(
+            now: now,
+            manual: false,
+            quietModeUntil: quietDate,
+            lastSuccessfulWeek: nil,
+            automationEnabled: true,
+            calendar: c
+        ))
+        XCTAssertTrue(Schedule.shouldRunBackupAttempt(
+            now: now,
+            manual: true,
+            quietModeUntil: quietDate,
+            lastSuccessfulWeek: nil,
+            automationEnabled: true,
+            calendar: c
+        ))
+        XCTAssertTrue(Schedule.shouldRunBackupAttempt(
+            now: now,
+            manual: false,
+            quietModeUntil: nil,
+            lastSuccessfulWeek: nil,
+            automationEnabled: true,
+            calendar: c
+        ))
     }
 
     func testWarningOnlyOncePerWeek() {
@@ -232,6 +282,69 @@ final class CoreTests: XCTestCase {
         var state = RuntimeState()
         state.warningQueuedWeek = Schedule.isoWeek(for: now, calendar: c)
         XCTAssertTrue(Schedule.isWarningDue(now: now, state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
+    }
+
+    func testOverdueWarningSurvivesISOWeekRollover() {
+        let c = brusselsCalendar()
+        let previous = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
+        let due = Schedule.warningWeekDue(
+            now: date("2026-09-14T09:00:00+02:00"),
+            completedWeeks: [],
+            warningSentWeek: nil,
+            warningQueuedWeek: nil,
+            quietModeUntil: nil,
+            automationEnabled: true,
+            configurationEstablishedAt: date("2026-09-01T09:00:00+02:00"),
+            calendar: c
+        )
+        XCTAssertEqual(due, previous)
+    }
+
+    func testNewConfigurationDoesNotWarnForEarlierWeek() {
+        let c = brusselsCalendar()
+        let due = Schedule.warningWeekDue(
+            now: date("2026-09-14T09:00:00+02:00"),
+            completedWeeks: [],
+            warningSentWeek: nil,
+            warningQueuedWeek: nil,
+            quietModeUntil: nil,
+            automationEnabled: true,
+            configurationEstablishedAt: date("2026-09-14T08:30:00+02:00"),
+            calendar: c
+        )
+        XCTAssertNil(due)
+    }
+
+    func testQueuedWarningRemainsDueAfterWeekRollover() {
+        let c = brusselsCalendar()
+        let previous = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
+        let due = Schedule.warningWeekDue(
+            now: date("2026-09-16T09:00:00+02:00"),
+            completedWeeks: [],
+            warningSentWeek: nil,
+            warningQueuedWeek: previous,
+            quietModeUntil: nil,
+            automationEnabled: true,
+            configurationEstablishedAt: date("2026-09-01T09:00:00+02:00"),
+            calendar: c
+        )
+        XCTAssertEqual(due, previous)
+    }
+
+    func testCompletedPreviousWeekDoesNotProduceOverdueWarning() {
+        let c = brusselsCalendar()
+        let previous = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
+        let due = Schedule.warningWeekDue(
+            now: date("2026-09-14T09:00:00+02:00"),
+            completedWeeks: [previous],
+            warningSentWeek: nil,
+            warningQueuedWeek: previous,
+            quietModeUntil: nil,
+            automationEnabled: true,
+            configurationEstablishedAt: date("2026-09-01T09:00:00+02:00"),
+            calendar: c
+        )
+        XCTAssertNil(due)
     }
 
     func testNextAttemptMovesToNextWeekAfterSuccess() {

@@ -34,6 +34,11 @@ public enum Schedule {
         return calendar.date(byAdding: .day, value: 1, to: start) ?? selectedDate
     }
 
+    public static func isQuietModeActive(now: Date, quietModeUntil: Date?, calendar: Calendar = .current) -> Bool {
+        guard let quietModeUntil else { return false }
+        return now < quietModeEndOfDay(for: quietModeUntil, calendar: calendar)
+    }
+
     public static func nextRegularSlot(after now: Date, lastSuccessfulWeek: WeekID?, automationEnabled: Bool, calendar: Calendar = Calendar(identifier: .iso8601)) -> Date? {
         guard automationEnabled else { return nil }
         let thisWeek = isoWeek(for: now, calendar: calendar)
@@ -49,12 +54,78 @@ public enum Schedule {
         return slots(forWeekContaining: now, calendar: calendar).contains { now >= $0 && now.timeIntervalSince($0) <= tolerance }
     }
 
+    public static func shouldRunBackupAttempt(
+        now: Date,
+        manual: Bool,
+        quietModeUntil: Date?,
+        lastSuccessfulWeek: WeekID?,
+        automationEnabled: Bool,
+        calendar: Calendar = Calendar(identifier: .iso8601)
+    ) -> Bool {
+        if manual { return true }
+        guard automationEnabled, !isQuietModeActive(now: now, quietModeUntil: quietModeUntil, calendar: calendar) else { return false }
+        return isDueRegularAttempt(now: now, lastSuccessfulWeek: lastSuccessfulWeek, calendar: calendar)
+    }
+
+    /// Liefert die Kalenderwoche, für die jetzt eine Warnung fällig ist. Eine bereits
+    /// vorgemerkte, aber nicht an Apple Mail übergebene Warnung bleibt auch nach dem
+    /// ISO-Wochenwechsel fällig. Zusätzlich wird die unmittelbar vorherige Woche
+    /// berücksichtigt, wenn die Konfiguration nachweislich schon vor deren
+    /// Warnzeitpunkt bestand. So erzeugt eine frische Einrichtung am Montag keine
+    /// rückwirkende Warnung für eine Woche, in der PunkteRetter noch nicht aktiv war.
+    public static func warningWeekDue(
+        now: Date,
+        completedWeeks: Set<WeekID>,
+        warningSentWeek: WeekID?,
+        warningQueuedWeek: WeekID?,
+        quietModeUntil: Date?,
+        automationEnabled: Bool,
+        configurationEstablishedAt: Date?,
+        calendar: Calendar = Calendar(identifier: .iso8601)
+    ) -> WeekID? {
+        guard automationEnabled, !isQuietModeActive(now: now, quietModeUntil: quietModeUntil, calendar: calendar) else { return nil }
+        let establishedAt = configurationEstablishedAt ?? .distantPast
+
+        func isDue(_ week: WeekID) -> Bool {
+            guard warningSentWeek != week, !completedWeeks.contains(week),
+                  let warning = warningCheck(for: week, calendar: calendar) else { return false }
+            return establishedAt <= warning && now >= warning
+        }
+
+        if let queued = warningQueuedWeek, isDue(queued) { return queued }
+
+        let current = isoWeek(for: now, calendar: calendar)
+        if isDue(current) { return current }
+
+        if let previousDate = calendar.date(byAdding: .weekOfYear, value: -1, to: now) {
+            let previous = isoWeek(for: previousDate, calendar: calendar)
+            if isDue(previous) { return previous }
+        }
+        return nil
+    }
+
     public static func isWarningDue(now: Date, state: RuntimeState, quietModeUntil: Date?, automationEnabled: Bool, calendar: Calendar = Calendar(identifier: .iso8601)) -> Bool {
-        guard automationEnabled else { return false }
-        if let q = quietModeUntil, now < quietModeEndOfDay(for: q, calendar: calendar) { return false }
-        let week = isoWeek(for: now, calendar: calendar)
-        guard state.lastSuccessfulWeek != week, state.warningSentWeek != week else { return false }
-        guard let warning = warningCheck(forWeekContaining: now, calendar: calendar) else { return false }
-        return now >= warning
+        let completed = state.lastSuccessfulWeek.map { Set([$0]) } ?? []
+        return warningWeekDue(
+            now: now,
+            completedWeeks: completed,
+            warningSentWeek: state.warningSentWeek,
+            warningQueuedWeek: state.warningQueuedWeek,
+            quietModeUntil: quietModeUntil,
+            automationEnabled: automationEnabled,
+            configurationEstablishedAt: nil,
+            calendar: calendar
+        ) != nil
+    }
+
+    private static func warningCheck(for week: WeekID, calendar: Calendar) -> Date? {
+        guard let monday = calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            weekday: 2,
+            weekOfYear: week.weekOfYear,
+            yearForWeekOfYear: week.yearForWeekOfYear
+        )), let thursday = calendar.date(byAdding: .day, value: 3, to: monday) else { return nil }
+        return calendar.date(bySettingHour: 14, minute: 45, second: 0, of: thursday)
     }
 }

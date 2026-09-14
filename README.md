@@ -1,4 +1,4 @@
-# PunkteRetter 1.2.0 (Build 122)
+# PunkteRetter 1.2.0 (Build 123)
 
 PunkteRetter ist eine native macOS-App zur wöchentlichen, verifizierten Sicherung wichtiger Dateien und kompletter Ordner in private iCloud-Drive-Ordner.
 
@@ -12,6 +12,7 @@ PunkteRetter ist eine native macOS-App zur wöchentlichen, verifizierten Sicheru
 - eigener Wochenstatus und eigener iCloud-Backup-Ordner pro Sicherungsauftrag
 - erneuter Versuch fehlgeschlagener Aufträge ohne doppelte Kopie bereits erfolgreicher Aufträge
 - Warnung am Donnerstag ab 14:45 Uhr mit den noch fehlenden Datei- und Ordneraufträgen
+- nach einem ausgeschalteten Mac oder fehlgeschlagenen Mailversand bleibt eine fällige Warnung auch über den Kalenderwochenwechsel erhalten
 - eine zusammenfassende Erfolgsmail, sobald alle aktiven Aufträge der Woche gesichert sind
 - Aufbewahrung von bis zu 26 eindeutig registrierten und überprüfbaren Wochenständen je Sicherungsauftrag
 - klarer 45-Sekunden-Prozess-Timeout für den Testmail-Hintergrunddienst
@@ -26,6 +27,8 @@ Nach Installation startet der Einrichtungsassistent. Er fragt nach Benachrichtig
 Beim ersten Zugriff auf Apple Mail kann macOS einen Sicherheitsdialog anzeigen. PunkteRetter speichert keine Mail-Passwörter und verwendet ausschließlich das ausdrücklich ausgewählte Apple-Mail-Konto.
 
 Die automatische Sicherung läuft mittwochs und donnerstags zwischen 09:00 und 14:30 Uhr. Fehlt am Donnerstag um 14:45 Uhr noch mindestens ein aktiver Auftrag, wird eine Warnmail an Apple Mail übergeben. War der Mac ausgeschaltet oder der Versand nicht möglich, wird die Warnung beim nächsten Start als verspätet gekennzeichnet.
+
+Der Ruhemodus pausiert ausschließlich automatische Backup-Versuche und Warnungen bis zum Ende des gewählten Tages. **„Fehlende Backups jetzt erstellen“** bleibt dabei verfügbar.
 
 ## Sicherheitsprinzip
 

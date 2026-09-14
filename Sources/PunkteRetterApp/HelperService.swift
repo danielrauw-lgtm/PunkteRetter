@@ -9,6 +9,9 @@ enum HelperService {
         do { try service.register() }
         catch { if service.status != .enabled { throw error } }
     }
-    static func unregister() throws { try service.unregister() }
+    static func unregister() throws {
+        do { try service.unregister() }
+        catch { if service.status != .notRegistered { throw error } }
+    }
 }
 #endif

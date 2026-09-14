@@ -30,6 +30,11 @@ struct PunkteRetterAgentMain {
 
         do {
             var config = try await configStore.load(default: AppConfiguration())
+            // Vor möglichen Bookmark-Migrationen erfassen. Der Zeitstempel belegt,
+            // ob diese Konfiguration bereits vor einem verpassten Warntermin bestand.
+            let configurationEstablishedAt = try? PunkteRetterPaths.configURL
+                .resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate
 
             if mailTestRequested {
                 try await runMailTest(config: config, configStore: configStore)
@@ -85,7 +90,13 @@ struct PunkteRetterAgentMain {
             if allSecuredBefore { state.lastSuccessfulWeek = week }
             else if state.lastSuccessfulWeek == week { state.lastSuccessfulWeek = nil }
 
-            if manual || (!allSecuredBefore && Schedule.isDueRegularAttempt(now: now, lastSuccessfulWeek: state.lastSuccessfulWeek)) {
+            if !allSecuredBefore && Schedule.shouldRunBackupAttempt(
+                now: now,
+                manual: manual,
+                quietModeUntil: config.quietModeUntil,
+                lastSuccessfulWeek: state.lastSuccessfulWeek,
+                automationEnabled: config.automationEnabled
+            ) {
                 state.lastAttemptAt = now
                 await runPendingBackups(items: items, state: &state, now: now, stateStore: stateStore)
             }
@@ -98,8 +109,23 @@ struct PunkteRetterAgentMain {
                 await cleanup(config: config, state: &state, stateStore: stateStore)
             }
 
-            if Schedule.isWarningDue(now: now, state: state, quietModeUntil: config.quietModeUntil, automationEnabled: config.automationEnabled) {
-                await sendWarning(config: config, items: items, state: &state, now: now, stateStore: stateStore)
+            let completedWeeks = Set(state.records.map(\.week).filter { candidate in
+                allSecured(items: items, state: state, week: candidate)
+            })
+            if let queued = state.warningQueuedWeek, completedWeeks.contains(queued) {
+                state.warningQueuedWeek = nil
+                try? await stateStore.save(state)
+            }
+            if let warningWeek = Schedule.warningWeekDue(
+                now: now,
+                completedWeeks: completedWeeks,
+                warningSentWeek: state.warningSentWeek,
+                warningQueuedWeek: state.warningQueuedWeek,
+                quietModeUntil: config.quietModeUntil,
+                automationEnabled: config.automationEnabled,
+                configurationEstablishedAt: configurationEstablishedAt
+            ) {
+                await sendWarning(config: config, items: items, state: &state, week: warningWeek, now: now, stateStore: stateStore)
             }
         } catch {
             if mailTestRequested {
@@ -316,8 +342,8 @@ struct PunkteRetterAgentMain {
         }
 
         let latest = weekRecords.map(\.createdAt).max() ?? Date()
-        let subject = "PunkteRetter: \(items.count) von \(items.count) Backup-Aufträgen für KW \(week.weekOfYear) gesichert"
-        let body = "Guten Tag,\n\nPunkteRetter hat alle eingerichteten Dateien und Ordner für diese Woche gesichert.\n\n\(names)\n\nAbschluss: \(formatter.string(from: latest))\nKalenderwoche: \(week.weekOfYear)\nIntegritätsprüfung: bestanden (jede normale Datei wurde per SHA-256 geprüft)\n\(cloudSummary)\n\nHinweis: Die Nachricht wurde Apple Mail zum Versand übergeben. Eine Zustellung durch den Mailserver kann PunkteRetter nicht garantieren."
+        let subject = "PunkteRetter: \(items.count) von \(items.count) Backup-Aufträgen für \(week.description) gesichert"
+        let body = "Guten Tag,\n\nPunkteRetter hat alle eingerichteten Dateien und Ordner für \(week.description) gesichert.\n\n\(names)\n\nAbschluss: \(formatter.string(from: latest))\nKalenderwoche: \(week.description)\nIntegritätsprüfung: bestanden (jede normale Datei wurde per SHA-256 geprüft)\n\(cloudSummary)\n\nHinweis: Die Nachricht wurde Apple Mail zum Versand übergeben. Eine Zustellung durch den Mailserver kann PunkteRetter nicht garantieren."
 
         do {
             try AppleMailBridge.send(accountID: mail.0, senderAddress: mail.1, to: mail.2, subject: subject, body: body)
@@ -341,23 +367,31 @@ struct PunkteRetterAgentMain {
         return items.contains { $0.id == id }
     }
 
-    private static func sendWarning(config: AppConfiguration, items: [BackupItem], state: inout RuntimeState, now: Date, stateStore: AtomicJSONStore<RuntimeState>) async {
+    private static func sendWarning(config: AppConfiguration, items: [BackupItem], state: inout RuntimeState, week: WeekID, now: Date, stateStore: AtomicJSONStore<RuntimeState>) async {
         guard let mail = mailReady(config) else { return }
-        let week = Schedule.isoWeek(for: now)
         let missing = items.filter { !state.isSecured(itemID: $0.id, week: week) }
         guard !missing.isEmpty else { return }
 
-        let warningTime = Schedule.warningCheck(forWeekContaining: now) ?? now
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = .current
+        let referenceDate = calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            weekday: 2,
+            weekOfYear: week.weekOfYear,
+            yearForWeekOfYear: week.yearForWeekOfYear
+        )) ?? now
+        let warningTime = Schedule.warningCheck(forWeekContaining: referenceDate, calendar: calendar) ?? now
         let late = now > warningTime.addingTimeInterval(5 * 60)
         let noun = missing.count == 1 ? "Backup-Auftrag" : "Backup-Aufträge"
         let subject = late
-            ? "PunkteRetter: verspätete Warnung – \(missing.count) \(noun) für KW \(week.weekOfYear) fehlt"
-            : "PunkteRetter: \(missing.count) \(noun) für KW \(week.weekOfYear) fehlt"
+            ? "PunkteRetter: verspätete Warnung – \(missing.count) \(noun) für \(week.description) fehlt"
+            : "PunkteRetter: \(missing.count) \(noun) für \(week.description) fehlt"
         let names = missing.map {
             "• \($0.sourceKind == .directory ? "Ordner" : "Datei") „\($0.sourceDisplayName)“"
         }.joined(separator: "\n")
         let reason = state.lastFailureReason.map { "Bekannte Ursache: \($0)" } ?? "Die genaue Ursache ist nicht bekannt."
-        let body = "Guten Tag,\n\nfür diese Woche fehlen noch folgende Backup-Aufträge:\n\n\(names)\n\n\(reason)\n\nBitte öffne PunkteRetter und wähle „Backup jetzt erstellen“.\n\n\(late ? "Diese Warnung ist verspätet, weil PunkteRetter zum vorgesehenen Warnzeitpunkt nicht erfolgreich ausführen oder versenden konnte." : "")\n\nHinweis: Die Nachricht wurde Apple Mail zum Versand übergeben. Die tatsächliche Serverzustellung kann PunkteRetter nicht garantieren."
+        let body = "Guten Tag,\n\nfür \(week.description) fehlen noch folgende Backup-Aufträge:\n\n\(names)\n\n\(reason)\n\nBitte öffne PunkteRetter und wähle „Backup jetzt erstellen“.\n\n\(late ? "Diese Warnung ist verspätet, weil PunkteRetter zum vorgesehenen Warnzeitpunkt nicht erfolgreich ausführen oder versenden konnte." : "")\n\nHinweis: Die Nachricht wurde Apple Mail zum Versand übergeben. Die tatsächliche Serverzustellung kann PunkteRetter nicht garantieren."
 
         do {
             try AppleMailBridge.send(accountID: mail.0, senderAddress: mail.1, to: mail.2, subject: subject, body: body)

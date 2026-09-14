@@ -514,13 +514,22 @@ final class AppModel: ObservableObject {
     }
 
     func uninstall() async {
-        do { try? HelperService.unregister() }
-        do { try FileManager.default.removeItem(at: PunkteRetterPaths.supportDirectory()) } catch { }
+        guard let uninstallLock = ExclusiveProcessLock(url: PunkteRetterPaths.supportDirectory().appendingPathComponent("agent.lock")) else {
+            errorText = "PunkteRetter führt gerade ein Backup oder einen Mailtest aus. Bitte warte, bis dieser Vorgang beendet ist, und starte die Deinstallation danach erneut."
+            return
+        }
+        defer { _ = uninstallLock }
+
         do {
+            try HelperService.unregister()
             _ = try FileManager.default.trashItem(at: Bundle.main.bundleURL, resultingItemURL: nil)
+            let support = PunkteRetterPaths.supportDirectory()
+            if FileManager.default.fileExists(atPath: support.path) {
+                try FileManager.default.removeItem(at: support)
+            }
             NSApp.terminate(nil)
         } catch {
-            errorText = "Die Automatik ist deaktiviert, aber die App konnte nicht automatisch in den Papierkorb gelegt werden: \(error.localizedDescription)"
+            errorText = "PunkteRetter konnte nicht vollständig deinstalliert werden. Es wurden keine Quelldateien und keine Backups gelöscht: \(error.localizedDescription)"
         }
     }
 
