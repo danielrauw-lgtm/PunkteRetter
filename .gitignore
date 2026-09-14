@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+dist/
+*.xcresult
+*.pkg
+*.app
+*.cer
+*.p12
+*.mobileprovision
+*.provisionprofile
+PunkteRetter-Source.b64
+bootstrap/

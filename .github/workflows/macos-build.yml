@@ -1,0 +1,147 @@
+name: PunkteRetter macOS Build
+
+on:
+  push:
+    branches: [main, punkte-retter-1.2-folder-snapshots]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Statische Projektprüfungen
+        run: |
+          set -euo pipefail
+          zsh -n Scripts/build-release.command
+          plutil -lint Resources/Info.plist
+          plutil -lint Resources/PunkteRetter.entitlements
+          plutil -lint Resources/de.punkteretter.agent.plist
+          git diff --check
+      - name: Umgebung
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          swift --version
+      - name: Core-Tests
+        run: swift test
+      - name: Native macOS Targets kompilieren
+        run: swift build -c release
+      - name: Installer bauen
+        shell: /bin/zsh -e {0}
+        run: |
+          chmod +x Scripts/build-release.command
+          Scripts/build-release.command
+      - name: Universal Binary prüfen
+        run: |
+          set -euo pipefail
+          lipo -info dist/PunkteRetter.app/Contents/MacOS/PunkteRetter | tee /tmp/app-arch.txt
+          lipo -info dist/PunkteRetter.app/Contents/Resources/PunkteRetterAgent | tee /tmp/agent-arch.txt
+          grep -q arm64 /tmp/app-arch.txt
+          grep -q x86_64 /tmp/app-arch.txt
+          grep -q arm64 /tmp/agent-arch.txt
+          grep -q x86_64 /tmp/agent-arch.txt
+      - name: App-Bundle, Version und Signatur prüfen
+        run: |
+          set -euo pipefail
+          test -x dist/PunkteRetter.app/Contents/MacOS/PunkteRetter
+          test -x dist/PunkteRetter.app/Contents/Resources/PunkteRetterAgent
+          test -f dist/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist
+          plutil -lint dist/PunkteRetter.app/Contents/Info.plist
+          plutil -lint dist/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist
+          test "$(plutil -extract CFBundleShortVersionString raw -o - dist/PunkteRetter.app/Contents/Info.plist)" = "1.2.0"
+          test "$(plutil -extract CFBundleVersion raw -o - dist/PunkteRetter.app/Contents/Info.plist)" = "122"
+          codesign --verify --deep --strict --verbose=2 dist/PunkteRetter.app
+      - name: Installer-Paket und Zielpfad prüfen
+        run: |
+          set -euo pipefail
+          PKG=dist/PunkteRetter-1.2.0-Build122-UNSIGNED.pkg
+          pkgutil --check-signature "$PKG" || true
+          rm -rf /tmp/punkteretter-pkg
+          pkgutil --expand-full "$PKG" /tmp/punkteretter-pkg
+          PAYLOAD=/tmp/punkteretter-pkg/PunkteRetter-component.pkg/Payload
+          test -d "$PAYLOAD/PunkteRetter.app"
+          test ! -d "$PAYLOAD/Applications/PunkteRetter.app"
+          test -x "$PAYLOAD/PunkteRetter.app/Contents/MacOS/PunkteRetter"
+          test -x "$PAYLOAD/PunkteRetter.app/Contents/Resources/PunkteRetterAgent"
+          grep -q 'install-location="/Applications"' /tmp/punkteretter-pkg/PunkteRetter-component.pkg/PackageInfo
+          grep -q 'version="1.2.0.122"' /tmp/punkteretter-pkg/PunkteRetter-component.pkg/PackageInfo
+          test -f /tmp/punkteretter-pkg/Distribution
+          grep -q 'InstallerWelcome.html' /tmp/punkteretter-pkg/Distribution
+          grep -q 'InstallerConclusion.html' /tmp/punkteretter-pkg/Distribution
+          test -f /tmp/punkteretter-pkg/Resources/InstallerWelcome.html
+          test -f /tmp/punkteretter-pkg/Resources/InstallerConclusion.html
+          grep -q 'Weitere Dateien und Ordner' /tmp/punkteretter-pkg/Resources/InstallerWelcome.html
+      - name: Installer tatsächlich nach Programme installieren
+        run: |
+          set -euo pipefail
+          PKG=dist/PunkteRetter-1.2.0-Build122-UNSIGNED.pkg
+          SUPPORT="$HOME/Library/Application Support/PunkteRetter"
+          mkdir -p "$SUPPORT"
+          printf '%s' 'bestehende-benutzerdaten' > "$SUPPORT/installer-preservation-test.txt"
+          BEFORE="$(shasum -a 256 "$SUPPORT/installer-preservation-test.txt" | awk '{print $1}')"
+          sudo rm -rf /Applications/PunkteRetter.app
+          sudo pkgutil --forget de.punkteretter.pkg >/dev/null 2>&1 || true
+          sudo installer -pkg "$PKG" -target /
+          test -d /Applications/PunkteRetter.app
+          test -x /Applications/PunkteRetter.app/Contents/MacOS/PunkteRetter
+          test -x /Applications/PunkteRetter.app/Contents/Resources/PunkteRetterAgent
+          test -f /Applications/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist
+          test "$(/Applications/PunkteRetter.app/Contents/Resources/PunkteRetterAgent --version)" = "1.2.0 (Build 122)"
+          codesign --verify --deep --strict --verbose=2 /Applications/PunkteRetter.app
+          test "$(plutil -extract CFBundleShortVersionString raw -o - /Applications/PunkteRetter.app/Contents/Info.plist)" = "1.2.0"
+          test "$(plutil -extract CFBundleVersion raw -o - /Applications/PunkteRetter.app/Contents/Info.plist)" = "122"
+          test "$(plutil -extract Label raw -o - /Applications/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist)" = "de.punkteretter.agent"
+          test "$(plutil -extract BundleProgram raw -o - /Applications/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist)" = "Contents/Resources/PunkteRetterAgent"
+          test ! -e /Applications/Applications/PunkteRetter.app
+          test "$(stat -f '%Su' /Applications/PunkteRetter.app)" = "root"
+          AFTER="$(shasum -a 256 "$SUPPORT/installer-preservation-test.txt" | awk '{print $1}')"
+          test "$BEFORE" = "$AFTER"
+          /usr/bin/pkill -x PunkteRetter >/dev/null 2>&1 || true
+          sudo rm -rf /Applications/PunkteRetter.app
+          sudo pkgutil --forget de.punkteretter.pkg >/dev/null 2>&1 || true
+      - name: Build-Ergebnis
+        if: always()
+        run: find dist -maxdepth 4 -type f -print 2>/dev/null || true
+      - name: Test-Artefakt
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PunkteRetter-1.2.0-Build122-INSTALLER-VERIFIED
+          path: |
+            dist/PunkteRetter-1.2.0-Build122-UNSIGNED.pkg
+            dist/PunkteRetter.app
+          if-no-files-found: error
+          retention-days: 7
+
+  test-intel:
+    name: Native Intel-Prüfung
+    runs-on: macos-26-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Statische Projektprüfungen
+        run: |
+          set -euo pipefail
+          zsh -n Scripts/build-release.command
+          plutil -lint Resources/Info.plist
+          plutil -lint Resources/PunkteRetter.entitlements
+          plutil -lint Resources/de.punkteretter.agent.plist
+          git diff --check
+      - name: Intel-Umgebung bestätigen
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m | tee /tmp/arch.txt
+          grep -q x86_64 /tmp/arch.txt
+          xcodebuild -version
+          swift --version
+      - name: Core-Tests nativ auf Intel
+        run: swift test
+      - name: App und Agent nativ auf Intel kompilieren
+        run: swift build -c release
