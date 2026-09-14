@@ -105,6 +105,7 @@ public enum Schedule {
     }
 
     public static func isWarningDue(now: Date, state: RuntimeState, quietModeUntil: Date?, automationEnabled: Bool, calendar: Calendar = Calendar(identifier: .iso8601)) -> Bool {
+        let currentWeek = isoWeek(for: now, calendar: calendar)
         let completed = state.lastSuccessfulWeek.map { Set([$0]) } ?? []
         return warningWeekDue(
             now: now,
@@ -115,7 +116,7 @@ public enum Schedule {
             automationEnabled: automationEnabled,
             configurationEstablishedAt: nil,
             calendar: calendar
-        ) != nil
+        ) == currentWeek
     }
 
     private static func warningCheck(for week: WeekID, calendar: Calendar) -> Date? {
