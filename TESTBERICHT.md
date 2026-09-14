@@ -42,16 +42,18 @@ Der Stand ist ein **CI-Release-Candidate** und noch kein freigegebener Endanwend
 
 ## Installerprüfung in GitHub Actions
 
-Der macOS-Job muss:
+Der vollständige öffentliche Workflow [Run 34877249727](https://github.com/danielrauw-lgtm/PunkteRetter/actions/runs/34877249727) für Commit `858c9c1c82a987ff9e7dc9b59c5bae11222e4d6c` wurde am 14.09.2026 grün abgeschlossen.
 
-1. Tests und Release-Build ausführen.
-2. App und Agent als Universal Binary prüfen.
-3. den PKG-Inhalt und `install-location="/Applications"` prüfen.
-4. den fertigen PKG tatsächlich mit `sudo installer -pkg … -target /` installieren.
-5. anschließend App, Agent, Version 1.2.0, Build 122, LaunchAgent, Eigentümer und den Ausschluss von `/Applications/Applications` prüfen.
-6. nachweisen, dass bestehende Daten unter `~/Library/Application Support/PunkteRetter` erhalten bleiben.
+Der macOS-Job hat dabei:
 
-Das konkrete Ergebnis und die Workflow-Run-ID werden erst nach tatsächlich beendeter Pipeline ergänzt.
+1. Tests und Release-Build ausgeführt.
+2. App und Agent als Universal Binary geprüft.
+3. den PKG-Inhalt und `install-location="/Applications"` geprüft.
+4. den fertigen PKG tatsächlich mit `sudo installer -pkg … -target /` installiert.
+5. anschließend App, Agent, Version 1.2.0, Build 122, LaunchAgent, Eigentümer und den Ausschluss von `/Applications/Applications` geprüft.
+6. nachgewiesen, dass bestehende Daten unter `~/Library/Application Support/PunkteRetter` erhalten bleiben.
+
+Auch Core-Tests sowie App- und Agent-Kompilierung auf dem nativen Intel-Runner waren erfolgreich. Das geprüfte Artefakt `PunkteRetter-1.2.0-Build122-INSTALLER-VERIFIED` wurde für sieben Tage bereitgestellt. Es ist ad-hoc signiert und nicht notarisiert.
 
 ## Nicht durch CI beweisbar
 
