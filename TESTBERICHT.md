@@ -12,6 +12,13 @@ Der Stand verbleibt auf `punkte-retter-1.2-folder-snapshots`. Er wird weder nach
 
 ## A. Geprüft und bestanden
 
+- **GitHub Actions, Lauf 35005453166, exakter Code-Commit `39c8d625e0477440ae4015ccd1b931ac4befffff`: vollständig erfolgreich.** Beide Jobs (`build-macos` und `Native Intel-Prüfung`) wurden einem Runner zugewiesen und mit Ergebnis `success` abgeschlossen.
+- Alle 65 Core-/Snapshot-Tests liefen auf dem ARM-macOS-Runner direkt sowie erneut innerhalb des Release-Scripts und zusätzlich nativ auf dem Intel-macOS-Runner: drei vollständige Testläufe, jeweils ohne Fehler.
+- App und Agent wurden nativ auf Intel kompiliert. Der Universal-Build wurde mit `lipo` geprüft; beide Binärdateien enthalten tatsächlich `arm64` und `x86_64`.
+- Das App-Bundle wurde auf ausführbare Haupt- und Agent-Binärdatei, LaunchAgent, Bundle-ID und die Versionswerte `1.2.0` / `124` geprüft.
+- Das PKG `PunkteRetter-1.2.0.124-UNSIGNED.pkg` wurde erzeugt, vollständig expandiert und auf Paket-ID, Paketversion, Payload und den direkten Zielpfad `/Applications/PunkteRetter.app` geprüft. Eine doppelte `Applications`-Ebene wurde ausgeschlossen.
+- Das erzeugte PKG wurde mit dem macOS-Systemwerkzeug `installer` tatsächlich nach `/Applications/PunkteRetter.app` installiert. App, Agent und LaunchAgent waren danach am erwarteten Ort vorhanden; eine vorher angelegte Testdatei in den Benutzerdaten blieb bytegleich erhalten.
+- Die ad-hoc-Signatur von App und Agent wurde technisch geprüft. Apple-Events-Berechtigung und Apple-Events-Nutzungsbeschreibung sind nicht vorhanden.
 - Quellvergleich Build 123 gegen Build 124: Mail-UI, Mail-Bridges, Testmail-Aufruf, Agent-Mailpfade und Mailzustände wurden entfernt.
 - Die Einrichtung verlangt nur noch einen vollständigen Sicherungsauftrag und die Privat-Bestätigung des Zielordners.
 - Die Aktivierung der Automatik hängt nicht mehr von einer Mailadresse, einem Apple-Mail-Konto oder einer Testmail ab.
@@ -43,7 +50,6 @@ Eine statische Prüfung ersetzt keine reale iCloud-, Bookmark-, Login-, Neustart
 
 ## D. Nicht testbar
 
-- **NOCH NICHT AUSGEFÜHRT – macOS-CI für den neuen Build 124 steht aus:** Swift-Kompilierung, 65 Tests, Universal-Build, Codesign-Struktur, PKG-Erzeugung und tatsächliche PKG-Installation.
 - **NICHT GETESTET – kein eigenes physisches Apple-Silicon-Endgerät verfügbar:** frische Benutzerinstallation, reale Gatekeeper-Oberfläche, Login, Neustart und Dauerbetrieb.
 - **NICHT GETESTET – keine reale Benutzerumgebung verfügbar:** iCloud-Drive-Synchronisation, nicht lokal geladene iCloud-Dateien, Security-Scoped Bookmarks über Neustarts und die konkrete produktive Ordnerstruktur.
 - **NICHT GETESTET – keine Developer-ID- und Notarisierungsdaten:** Gatekeeper-Verhalten eines Developer-ID-signierten und notarisierten Endanwender-PKG.
@@ -59,11 +65,6 @@ Eine statische Prüfung ersetzt keine reale iCloud-, Bookmark-, Login-, Neustart
 
 ## F. Noch notwendige Tests vor Freigabe
 
-- GitHub-Actions-Lauf für den exakten Build-124-Commit vollständig ausführen.
-- Alle 65 Core- und Snapshot-Tests auf ARM und Intel bestehen lassen.
-- Universal-Binaries für App und Agent mit `lipo` bestätigen.
-- PKG-Inhalt, `/Applications`-Ziel und Paketversion prüfen.
-- PKG tatsächlich installieren und Erhalt vorhandener Benutzerdaten prüfen.
 - Build 124 auf dem betroffenen Benutzer-Mac über Build 123 installieren.
 - Prüfen, dass der Assistent ohne Mailfelder erscheint und **„Einrichtung abschließen“** nach Quellen-, Ziel- und Privat-Auswahl aktiv wird.
 - Manuelles Datei- und Ordnerbackup auf diesem Mac durchführen und den erzeugten Wochenstand öffnen.
@@ -74,4 +75,4 @@ Eine statische Prüfung ersetzt keine reale iCloud-, Bookmark-, Login-, Neustart
 
 **NICHT RELEASE-READY**
 
-Build 124 behebt den beobachteten Einrichtungsblocker konzeptionell und entfernt die komplette Apple-Mail-Abhängigkeit. Vor Übergabe als neuer Test-Installer müssen der exakte Stand jedoch noch auf macOS gebaut, automatisiert geprüft und tatsächlich installiert werden. Erfolgreiche, noch nicht ausgeführte Tests werden nicht behauptet.
+Build 124 entfernt die komplette Apple-Mail-Abhängigkeit und damit die harte Testmail-Sperre der Einrichtung. Code, Tests, Universal-Binaries und der unsigned/ad-hoc Test-Installer wurden auf GitHub-macOS-Runnern erfolgreich geprüft; das PKG wurde dort tatsächlich installiert und der Erhalt vorhandener Benutzerdaten automatisiert bestätigt. Die Einstufung bleibt dennoch **NICHT RELEASE-READY**, bis der neue Assistent und ein reales Datei-/Ordnerbackup auf dem betroffenen Benutzer-Mac geprüft sowie Developer-ID-Signierung und Notarisierung für einen öffentlichen Endanwender-Release durchgeführt wurden. Erfolgreiche, noch nicht ausgeführte Praxistests werden nicht behauptet.
