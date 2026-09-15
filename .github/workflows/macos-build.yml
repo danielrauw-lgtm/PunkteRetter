@@ -21,6 +21,10 @@ jobs:
           plutil -lint Resources/Info.plist
           plutil -lint Resources/PunkteRetter.entitlements
           plutil -lint Resources/de.punkteretter.agent.plist
+          if grep -R -n -E 'NSAppleEventsUsageDescription|com\.apple\.security\.automation\.apple-events|AppleMailBridge|--test-mail' Sources Resources; then
+            echo "Unerwartete Apple-Mail-/Apple-Events-Abhängigkeit gefunden." >&2
+            exit 1
+          fi
           git diff --check
       - name: Umgebung
         run: |
@@ -55,12 +59,12 @@ jobs:
           plutil -lint dist/PunkteRetter.app/Contents/Info.plist
           plutil -lint dist/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist
           test "$(plutil -extract CFBundleShortVersionString raw -o - dist/PunkteRetter.app/Contents/Info.plist)" = "1.2.0"
-          test "$(plutil -extract CFBundleVersion raw -o - dist/PunkteRetter.app/Contents/Info.plist)" = "123"
+          test "$(plutil -extract CFBundleVersion raw -o - dist/PunkteRetter.app/Contents/Info.plist)" = "124"
           codesign --verify --deep --strict --verbose=2 dist/PunkteRetter.app
           codesign -d --entitlements :- dist/PunkteRetter.app 2>&1 | tee /tmp/app-entitlements.txt
           codesign -d --entitlements :- dist/PunkteRetter.app/Contents/Resources/PunkteRetterAgent 2>&1 | tee /tmp/agent-entitlements.txt
-          grep -q '<key>com.apple.security.automation.apple-events</key>' /tmp/app-entitlements.txt
-          grep -q '<key>com.apple.security.automation.apple-events</key>' /tmp/agent-entitlements.txt
+          ! grep -q 'com.apple.security.automation.apple-events' /tmp/app-entitlements.txt
+          ! grep -q 'com.apple.security.automation.apple-events' /tmp/agent-entitlements.txt
           codesign -dv --verbose=4 dist/PunkteRetter.app 2>&1 | tee /tmp/app-signature.txt
           codesign -dv --verbose=4 dist/PunkteRetter.app/Contents/Resources/PunkteRetterAgent 2>&1 | tee /tmp/agent-signature.txt
           grep -q 'runtime' /tmp/app-signature.txt
@@ -68,7 +72,7 @@ jobs:
       - name: Installer-Paket und Zielpfad prüfen
         run: |
           set -euo pipefail
-          PKG=dist/PunkteRetter-1.2.0-Build123-UNSIGNED.pkg
+          PKG=dist/PunkteRetter-1.2.0-Build124-UNSIGNED.pkg
           pkgutil --check-signature "$PKG" || true
           rm -rf /tmp/punkteretter-pkg
           pkgutil --expand-full "$PKG" /tmp/punkteretter-pkg
@@ -78,7 +82,7 @@ jobs:
           test -x "$PAYLOAD/PunkteRetter.app/Contents/MacOS/PunkteRetter"
           test -x "$PAYLOAD/PunkteRetter.app/Contents/Resources/PunkteRetterAgent"
           grep -q 'install-location="/Applications"' /tmp/punkteretter-pkg/PunkteRetter-component.pkg/PackageInfo
-          grep -q 'version="1.2.0.123"' /tmp/punkteretter-pkg/PunkteRetter-component.pkg/PackageInfo
+          grep -q 'version="1.2.0.124"' /tmp/punkteretter-pkg/PunkteRetter-component.pkg/PackageInfo
           test -f /tmp/punkteretter-pkg/Distribution
           grep -q 'InstallerWelcome.html' /tmp/punkteretter-pkg/Distribution
           grep -q 'InstallerConclusion.html' /tmp/punkteretter-pkg/Distribution
@@ -88,7 +92,7 @@ jobs:
       - name: Installer tatsächlich nach Programme installieren
         run: |
           set -euo pipefail
-          PKG=dist/PunkteRetter-1.2.0-Build123-UNSIGNED.pkg
+          PKG=dist/PunkteRetter-1.2.0-Build124-UNSIGNED.pkg
           SUPPORT="$HOME/Library/Application Support/PunkteRetter"
           mkdir -p "$SUPPORT"
           printf '%s' 'bestehende-benutzerdaten' > "$SUPPORT/installer-preservation-test.txt"
@@ -100,10 +104,10 @@ jobs:
           test -x /Applications/PunkteRetter.app/Contents/MacOS/PunkteRetter
           test -x /Applications/PunkteRetter.app/Contents/Resources/PunkteRetterAgent
           test -f /Applications/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist
-          test "$(/Applications/PunkteRetter.app/Contents/Resources/PunkteRetterAgent --version)" = "1.2.0 (Build 123)"
+          test "$(/Applications/PunkteRetter.app/Contents/Resources/PunkteRetterAgent --version)" = "1.2.0 (Build 124)"
           codesign --verify --deep --strict --verbose=2 /Applications/PunkteRetter.app
           test "$(plutil -extract CFBundleShortVersionString raw -o - /Applications/PunkteRetter.app/Contents/Info.plist)" = "1.2.0"
-          test "$(plutil -extract CFBundleVersion raw -o - /Applications/PunkteRetter.app/Contents/Info.plist)" = "123"
+          test "$(plutil -extract CFBundleVersion raw -o - /Applications/PunkteRetter.app/Contents/Info.plist)" = "124"
           test "$(plutil -extract Label raw -o - /Applications/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist)" = "de.punkteretter.agent"
           test "$(plutil -extract BundleProgram raw -o - /Applications/PunkteRetter.app/Contents/Library/LaunchAgents/de.punkteretter.agent.plist)" = "Contents/Resources/PunkteRetterAgent"
           test ! -e /Applications/Applications/PunkteRetter.app
@@ -120,9 +124,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: PunkteRetter-1.2.0-Build123-INSTALLER-VERIFIED
+          name: PunkteRetter-1.2.0-Build124-INSTALLER-VERIFIED
           path: |
-            dist/PunkteRetter-1.2.0-Build123-UNSIGNED.pkg
+            dist/PunkteRetter-1.2.0-Build124-UNSIGNED.pkg
             dist/PunkteRetter.app
           if-no-files-found: error
           retention-days: 7
@@ -140,6 +144,10 @@ jobs:
           plutil -lint Resources/Info.plist
           plutil -lint Resources/PunkteRetter.entitlements
           plutil -lint Resources/de.punkteretter.agent.plist
+          if grep -R -n -E 'NSAppleEventsUsageDescription|com\.apple\.security\.automation\.apple-events|AppleMailBridge|--test-mail' Sources Resources; then
+            echo "Unerwartete Apple-Mail-/Apple-Events-Abhängigkeit gefunden." >&2
+            exit 1
+          fi
           git diff --check
       - name: Intel-Umgebung bestätigen
         run: |

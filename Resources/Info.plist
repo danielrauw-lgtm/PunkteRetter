@@ -9,9 +9,8 @@
 <key>CFBundleDisplayName</key><string>PunkteRetter</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.2.0</string>
-<key>CFBundleVersion</key><string>123</string>
+<key>CFBundleVersion</key><string>124</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>NSAppleEventsUsageDescription</key><string>PunkteRetter benötigt Zugriff auf Apple Mail, um Test-, Erfolgs- und Warnmails ausschließlich über das von dir ausgewählte Mailkonto zu versenden.</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSSupportsAutomaticTermination</key><true/>
 </dict></plist>

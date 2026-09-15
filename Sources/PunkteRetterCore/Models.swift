@@ -9,7 +9,6 @@ public struct WeekID: Codable, Hashable, Comparable, Sendable, CustomStringConve
 }
 
 public enum CloudSyncState: String, Codable, Sendable { case notApplicable, localVerified, uploading, confirmed, failed, notVerifiable }
-public enum MailDeliveryState: String, Codable, Sendable { case none, queuedForMail, handedToMail, failed }
 public enum BackupSourceKind: String, Codable, Sendable { case file, directory }
 
 public struct BackupItem: Codable, Equatable, Sendable, Identifiable {
@@ -79,8 +78,7 @@ public struct BackupRecord: Codable, Equatable, Sendable, Identifiable {
     /// Nur Ordner-Snapshots besitzen ein eingebettetes, zusätzlich gehashtes Besitzmanifest.
     public let manifestSHA256: String?
     public var cloudSyncState: CloudSyncState
-    public var successMailState: MailDeliveryState
-    public init(id: UUID = UUID(), itemID: UUID? = nil, sourceDisplayName: String? = nil, destinationBookmark: Data? = nil, week: WeekID, createdAt: Date, fileName: String, sourceKind: BackupSourceKind = .file, sourceSHA256: String, byteCount: Int64, fileCount: Int = 1, manifestSHA256: String? = nil, cloudSyncState: CloudSyncState, successMailState: MailDeliveryState = .none) {
+    public init(id: UUID = UUID(), itemID: UUID? = nil, sourceDisplayName: String? = nil, destinationBookmark: Data? = nil, week: WeekID, createdAt: Date, fileName: String, sourceKind: BackupSourceKind = .file, sourceSHA256: String, byteCount: Int64, fileCount: Int = 1, manifestSHA256: String? = nil, cloudSyncState: CloudSyncState) {
         self.id = id
         self.itemID = itemID
         self.sourceDisplayName = sourceDisplayName
@@ -94,11 +92,10 @@ public struct BackupRecord: Codable, Equatable, Sendable, Identifiable {
         self.fileCount = fileCount
         self.manifestSHA256 = manifestSHA256
         self.cloudSyncState = cloudSyncState
-        self.successMailState = successMailState
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, itemID, sourceDisplayName, destinationBookmark, week, createdAt, fileName, sourceKind, sourceSHA256, byteCount, fileCount, manifestSHA256, cloudSyncState, successMailState
+        case id, itemID, sourceDisplayName, destinationBookmark, week, createdAt, fileName, sourceKind, sourceSHA256, byteCount, fileCount, manifestSHA256, cloudSyncState
     }
 
     public init(from decoder: Decoder) throws {
@@ -116,7 +113,6 @@ public struct BackupRecord: Codable, Equatable, Sendable, Identifiable {
         fileCount = try values.decodeIfPresent(Int.self, forKey: .fileCount) ?? 1
         manifestSHA256 = try values.decodeIfPresent(String.self, forKey: .manifestSHA256)
         cloudSyncState = try values.decode(CloudSyncState.self, forKey: .cloudSyncState)
-        successMailState = try values.decodeIfPresent(MailDeliveryState.self, forKey: .successMailState) ?? .none
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -134,18 +130,11 @@ public struct BackupRecord: Codable, Equatable, Sendable, Identifiable {
         try values.encode(fileCount, forKey: .fileCount)
         try values.encodeIfPresent(manifestSHA256, forKey: .manifestSHA256)
         try values.encode(cloudSyncState, forKey: .cloudSyncState)
-        try values.encode(successMailState, forKey: .successMailState)
     }
 }
 
 public struct AppConfiguration: Codable, Equatable, Sendable {
-    public var version: Int = 3
-    public var notificationAddress: String = ""
-    public var selectedMailAccountID: String? = nil
-    public var selectedMailAccountDisplayName: String? = nil
-    public var selectedMailSenderAddress: String? = nil
-    public var verifiedMailSelectionFingerprint: String? = nil
-    public var lastMailTestFailureReason: String? = nil
+    public var version: Int = 4
 
     public var sourceBookmark: Data? = nil
     public var destinationBookmark: Data? = nil
@@ -184,8 +173,6 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 public struct RuntimeState: Codable, Equatable, Sendable {
     public var records: [BackupRecord] = []
     public var lastSuccessfulWeek: WeekID? = nil
-    public var warningSentWeek: WeekID? = nil
-    public var warningQueuedWeek: WeekID? = nil
     public var lastFailureReason: String? = nil
     public var lastAttemptAt: Date? = nil
     public var operationInProgress: Bool = false

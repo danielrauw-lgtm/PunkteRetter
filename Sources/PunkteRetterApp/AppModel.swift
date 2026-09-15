@@ -8,12 +8,10 @@ import ServiceManagement
 final class AppModel: ObservableObject {
     @Published var config = AppConfiguration()
     @Published var state = RuntimeState()
-    @Published var accounts: [MailAccountChoice] = []
     @Published var statusText = "Bereit"
     @Published var errorText: String? = nil
     @Published var showSetup = false
     @Published var privateTargetConfirmation = false
-    @Published var mailTestInProgress = false
 
     private let configStore = AtomicJSONStore<AppConfiguration>(url: PunkteRetterPaths.configURL)
     private let stateStore = AtomicJSONStore<RuntimeState>(url: PunkteRetterPaths.stateURL)
@@ -28,8 +26,8 @@ final class AppModel: ObservableObject {
                 config.backupItems = config.effectiveBackupItems
                 configurationChanged = true
             }
-            if config.version < 3 {
-                config.version = 3
+            if config.version < 4 {
+                config.version = 4
                 configurationChanged = true
             }
             if configurationChanged {
@@ -78,7 +76,7 @@ final class AppModel: ObservableObject {
                 config.sourceKind = sourceKind
             }
 
-            config.version = 3
+            config.version = 4
             try await configStore.save(config)
             statusText = sourceKind == .directory ? "Ordner geprüft" : "Datei geprüft"
         } catch { errorText = error.localizedDescription }
@@ -123,7 +121,7 @@ final class AppModel: ObservableObject {
             config.destinationDisplayName = url.lastPathComponent
             config.targetConfirmedPrivate = false
             privateTargetConfirmation = false
-            config.version = 3
+            config.version = 4
             try await configStore.save(config)
             statusText = "Backup-Ziel geprüft"
         } catch { errorText = error.localizedDescription }
@@ -177,7 +175,7 @@ final class AppModel: ObservableObject {
             items.append(item)
             try validateBackupPlan(items)
             config.backupItems = items
-            config.version = 3
+            config.version = 4
             state.lastSuccessfulWeek = nil
 
             try await configStore.save(config)
@@ -270,120 +268,15 @@ final class AppModel: ObservableObject {
         } catch { errorText = error.localizedDescription }
     }
 
-    func refreshAccounts() {
-        do {
-            accounts = try AppleMailBridge.accounts()
-            if accounts.isEmpty {
-                errorText = "In Apple Mail wurde kein verwendbares Versandkonto gefunden. Outlook-Konten zählen nur, wenn sie zusätzlich in Apple Mail eingerichtet sind."
-            } else if accounts.count == 1 {
-                selectMailAccount(accounts[0])
-            }
-        } catch { errorText = error.localizedDescription }
-    }
-
-    func selectMailAccount(_ account: MailAccountChoice) {
-        config.selectedMailAccountID = account.accountID
-        config.selectedMailAccountDisplayName = account.displayName
-        config.selectedMailSenderAddress = account.senderAddress
-        config.verifiedMailSelectionFingerprint = nil
-        config.lastMailTestFailureReason = nil
-    }
-
-    func testMail() async -> Bool {
-        guard !mailTestInProgress else { return false }
-        guard Validation.isValidEmailSyntax(config.notificationAddress) else {
-            errorText = "Bitte eine gültige Benachrichtigungsadresse eingeben."
-            return false
-        }
-        guard let id = config.selectedMailAccountID, let sender = config.selectedMailSenderAddress else {
-            errorText = "Bitte zuerst ein Versandkonto aus Apple Mail auswählen."
-            return false
-        }
-
-        let expectedFingerprint = "\(id)|\(sender)"
-        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/PunkteRetterAgent")
-        guard FileManager.default.isExecutableFile(atPath: helper.path) else {
-            errorText = "Der Hintergrund-Helper fehlt in dieser Installation."
-            return false
-        }
-
-        mailTestInProgress = true
-        errorText = nil
-        defer { mailTestInProgress = false }
-
-        do {
-            config.verifiedMailSelectionFingerprint = nil
-            config.lastMailTestFailureReason = nil
-            try await configStore.save(config)
-            statusText = "Testmail wird über den Hintergrunddienst geprüft …"
-
-            let execution: Result<Int32, Error>
-            do {
-                execution = .success(try await ProcessRunner.run(executableURL: helper, arguments: ["--test-mail"], timeout: 45))
-            } catch {
-                execution = .failure(error)
-            }
-
-            config = try await configStore.load(default: AppConfiguration())
-            if config.verifiedMailSelectionFingerprint == expectedFingerprint {
-                // Die gespeicherte Bestätigung ist maßgeblich. So wird eine erfolgreiche
-                // Übergabe am Timeout-Rand nicht nachträglich als Fehler angezeigt.
-                statusText = "Hintergrundversand mit Testmail bestätigt"
-                errorText = nil
-                return true
-            }
-
-            let helperReason = config.lastMailTestFailureReason?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let reportedReason = helperReason?.isEmpty == false ? helperReason : nil
-
-            switch execution {
-            case .failure(let error as ProcessRunnerError):
-                statusText = "Testmail nicht bestätigt"
-                switch error {
-                case .timedOut:
-                    errorText = "Apple Mail hat innerhalb von 45 Sekunden nicht geantwortet. Eine erfolgreiche Übergabe ist deshalb nicht bestätigt. Bitte Apple Mail öffnen, die macOS-Automatisierungsfreigabe prüfen und den Test erneut starten. (\(error.localizedDescription))"
-                case .terminatedBySignal:
-                    errorText = "Der PunkteRetter-Hintergrunddienst wurde während des Mailtests unerwartet beendet. Es wurde keine erfolgreiche Übergabe bestätigt. Bitte den Test erneut starten. (\(error.localizedDescription))"
-                }
-            case .failure(let error):
-                statusText = "Testmail fehlgeschlagen"
-                errorText = "Test des automatischen Mailversands fehlgeschlagen: \(error.localizedDescription)"
-            case .success(let status) where status == 75:
-                statusText = "Testmail derzeit nicht möglich"
-                errorText = "PunkteRetter führt gerade einen anderen Vorgang aus. Bitte warte kurz und starte die Testmail danach erneut."
-            case .success(let status) where status != 0:
-                statusText = "Hintergrundversand noch nicht freigegeben"
-                errorText = reportedReason ?? "Der Hintergrunddienst hat den Mailtest mit Fehlercode \(status) beendet. Bitte Apple Mail öffnen und unter Systemeinstellungen → Datenschutz & Sicherheit → Automation die Freigabe prüfen."
-            case .success:
-                statusText = "Hintergrundversand noch nicht freigegeben"
-                errorText = reportedReason ?? "Der automatische Hintergrundversand über Apple Mail konnte nicht bestätigt werden. Bitte Apple Mail öffnen, die macOS-Automatisierungsfreigabe prüfen und die Testmail erneut senden."
-            }
-            return false
-
-        } catch {
-            config.verifiedMailSelectionFingerprint = nil
-            statusText = "Testmail fehlgeschlagen"
-            errorText = "Test des automatischen Mailversands fehlgeschlagen: \(error.localizedDescription)"
-            return false
-        }
-    }
-
     func completeSetup() async {
-        guard Validation.isValidEmailSyntax(config.notificationAddress),
-              !config.effectiveBackupItems.isEmpty,
-              config.selectedMailAccountID != nil else {
-            errorText = "Bitte E-Mail, Versandkonto, Datei oder Ordner und Backup-Ziel vollständig einrichten."
+        guard !config.effectiveBackupItems.isEmpty else {
+            errorText = "Bitte eine Datei oder einen Ordner und den privaten Backup-Ordner vollständig einrichten."
             return
         }
         guard privateTargetConfirmation else {
             errorText = "Bitte bestätigen, dass der Backup-Ordner privat und nicht freigegeben ist."
             return
         }
-        guard config.verifiedMailSelectionFingerprint == "\(config.selectedMailAccountID!)|\(config.selectedMailSenderAddress ?? "")" else {
-            errorText = "Bitte das ausgewählte Versandkonto zuerst mit einer Testmail prüfen."
-            return
-        }
-
         do {
             var items = config.effectiveBackupItems
             guard !items.isEmpty else { throw appError(32, "Keine Sicherungsquelle eingerichtet.") }
@@ -398,10 +291,16 @@ final class AppModel: ObservableObject {
             config.targetConfirmedPrivate = true
             config.setupCompleted = true
             config.automationEnabled = true
-            config.version = 3
-            try await configStore.save(config)
-
+            config.version = 4
             try HelperService.register()
+            do {
+                try await configStore.save(config)
+            } catch {
+                try? HelperService.unregister()
+                config.setupCompleted = false
+                config.automationEnabled = false
+                throw error
+            }
             if HelperService.service.status == .requiresApproval {
                 statusText = "Hintergrunddienst wartet auf Freigabe in den Systemeinstellungen."
                 SMAppService.openSystemSettingsLoginItems()
@@ -423,11 +322,6 @@ final class AppModel: ObservableObject {
             }
             guard config.enabledBackupItems.allSatisfy(\.targetConfirmedPrivate) else {
                 errorText = "Bitte alle Backup-Ziele als privat bestätigen, bevor die Automatik aktiviert wird."
-                config.automationEnabled = false
-                return
-            }
-            guard config.verifiedMailSelectionFingerprint == "\(config.selectedMailAccountID ?? "")|\(config.selectedMailSenderAddress ?? "")" else {
-                errorText = "Vor dem Aktivieren muss das ausgewählte Versandkonto erneut per Testmail geprüft werden."
                 config.automationEnabled = false
                 return
             }
@@ -495,19 +389,6 @@ final class AppModel: ObservableObject {
         } catch { errorText = error.localizedDescription }
     }
 
-    func checkMailAccount() {
-        do {
-            let list = try AppleMailBridge.accounts()
-            guard let id = config.selectedMailAccountID,
-                  let sender = config.selectedMailSenderAddress,
-                  list.contains(where: { $0.accountID == id && $0.senderAddress.caseInsensitiveCompare(sender) == .orderedSame }) else {
-                config.verifiedMailSelectionFingerprint = nil
-                throw appError(24, "Das ausgewählte Apple-Mail-Konto ist nicht mehr verfügbar. Es wurde nicht auf ein anderes Konto gewechselt.")
-            }
-            statusText = "Versandkonto ist vorhanden"
-        } catch { errorText = error.localizedDescription }
-    }
-
     func setQuietMode(until: Date?) async {
         config.quietModeUntil = until
         await saveConfig()
@@ -515,7 +396,7 @@ final class AppModel: ObservableObject {
 
     func uninstall() async {
         guard let uninstallLock = ExclusiveProcessLock(url: PunkteRetterPaths.supportDirectory().appendingPathComponent("agent.lock")) else {
-            errorText = "PunkteRetter führt gerade ein Backup oder einen Mailtest aus. Bitte warte, bis dieser Vorgang beendet ist, und starte die Deinstallation danach erneut."
+            errorText = "PunkteRetter führt gerade ein Backup aus. Bitte warte, bis dieser Vorgang beendet ist, und starte die Deinstallation danach erneut."
             return
         }
         defer { _ = uninstallLock }
@@ -619,7 +500,7 @@ final class AppModel: ObservableObject {
         }
         if changed {
             config.backupItems = items
-            config.version = max(config.version, 3)
+            config.version = max(config.version, 4)
             if items.count == 1, items[0].id == AppConfiguration.legacyItemID {
                 config.sourceBookmark = items[0].sourceBookmark
                 config.destinationBookmark = items[0].destinationBookmark

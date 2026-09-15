@@ -610,28 +610,28 @@ final class SnapshotEngineTests: XCTestCase {
         XCTAssertNil(record.manifestSHA256)
     }
 
-    func testMailHelperTimeoutEndsPredictably() async throws {
+    func testHelperProcessTimeoutEndsPredictably() async throws {
         let started = Date()
         do {
             _ = try await ProcessRunner.run(executableURL: URL(fileURLWithPath: "/bin/sleep"), arguments: ["5"], timeout: 0.1)
-            XCTFail("Ein hängender Mail-Helper muss in den Timeout laufen")
+            XCTFail("Ein hängender Helper-Prozess muss in den Timeout laufen")
         } catch let error as ProcessRunnerError {
             XCTAssertEqual(error, .timedOut(seconds: 1))
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
-    func testFailingMailHelperReturnsItsExitCodeWithoutHanging() async throws {
+    func testFailingHelperProcessReturnsItsExitCodeWithoutHanging() async throws {
         let status = try await ProcessRunner.run(executableURL: URL(fileURLWithPath: "/usr/bin/false"), arguments: [], timeout: 1)
         XCTAssertNotEqual(status, 0)
     }
 
-    func testFastMailHelperSuccessIsNotReportedAsTimeout() async throws {
+    func testFastHelperProcessSuccessIsNotReportedAsTimeout() async throws {
         let status = try await ProcessRunner.run(executableURL: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], timeout: 1)
         XCTAssertEqual(status, 0)
     }
 
-    func testMailHelperSuccessShortlyBeforeTimeoutIsPreserved() async throws {
+    func testHelperProcessSuccessShortlyBeforeTimeoutIsPreserved() async throws {
         let status = try await ProcessRunner.run(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "sleep 0.15; exit 0"],
@@ -640,7 +640,7 @@ final class SnapshotEngineTests: XCTestCase {
         XCTAssertEqual(status, 0)
     }
 
-    func testAbnormallyTerminatedMailHelperIsDistinguished() async throws {
+    func testAbnormallyTerminatedHelperProcessIsDistinguished() async throws {
         do {
             _ = try await ProcessRunner.run(
                 executableURL: URL(fileURLWithPath: "/bin/sh"),

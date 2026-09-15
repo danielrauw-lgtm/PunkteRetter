@@ -44,7 +44,7 @@ private struct RootView: View {
                 HStack(spacing: 16) {
                     infoCard("Letztes Backup", model.state.records.last.map { $0.createdAt.formatted(date: .abbreviated, time: .shortened) } ?? "Noch keines", "clock.arrow.circlepath")
                     infoCard("Nächster Versuch", model.nextAttempt?.formatted(date: .abbreviated, time: .shortened) ?? "Automatik aus", "calendar.badge.clock")
-                    infoCard("E-Mail", model.config.selectedMailAccountDisplayName ?? "Nicht eingerichtet", "envelope")
+                    infoCard("Sicherungsaufträge", "\(model.totalEnabledCount) eingerichtet", "folder.badge.checkmark")
                 }
 
                 backupList
@@ -127,12 +127,6 @@ private struct RootView: View {
 private struct SetupView: View {
     @EnvironmentObject var model: AppModel
 
-    private var mailVerified: Bool {
-        guard let id = model.config.selectedMailAccountID,
-              let sender = model.config.selectedMailSenderAddress else { return false }
-        return model.config.verifiedMailSelectionFingerprint == "\(id)|\(sender)"
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .firstTextBaseline) {
@@ -140,39 +134,8 @@ private struct SetupView: View {
                 Spacer()
                 Text(AppVersionInfo.display).font(.caption).foregroundStyle(.secondary)
             }
-            Text("Vier Dinge braucht PunkteRetter. Weitere Dateien und Ordner kannst du danach jederzeit hinzufügen.").foregroundStyle(.secondary)
-            GroupBox("1. Benachrichtigungsadresse") {
-                TextField("z. B. name@example.invalid", text: $model.config.notificationAddress).textFieldStyle(.roundedBorder).padding(.vertical, 4)
-            }
-            GroupBox("2. Versandkonto aus Apple Mail") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("macOS wird einmal fragen, ob PunkteRetter Apple Mail steuern darf. So muss PunkteRetter kein Mail-Passwort speichern.").font(.callout)
-                    HStack {
-                        Button("Apple-Mail-Konten prüfen") { model.refreshAccounts() }
-                        if !model.accounts.isEmpty {
-                            Picker("Versandkonto", selection: Binding(get: { ((model.config.selectedMailAccountID ?? "") + "|" + (model.config.selectedMailSenderAddress ?? "").lowercased()) }, set: { selected in if let account = model.accounts.first(where: { $0.id == selected }) { model.selectMailAccount(account) } })) {
-                                ForEach(model.accounts) { account in Text("\(account.displayName) – \(account.senderAddress)").tag(account.id) }
-                            }.frame(maxWidth: 380)
-                        }
-                        Button("Testmail senden") {
-                            Task { _ = await model.testMail() }
-                        }
-                        .disabled(model.config.selectedMailAccountID == nil || model.mailTestInProgress)
-                    }
-                    if model.mailTestInProgress {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Testmail wird an Apple Mail übergeben …")
-                        }
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    } else if mailVerified {
-                        Label("Testmail erfolgreich an Apple Mail zum Versand übergeben.", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    }
-                }.padding(.vertical, 4)
-            }
-            GroupBox("3. Erste Datei oder erster Ordner") {
+            Text("Zwei Dinge braucht PunkteRetter. Weitere Dateien und Ordner kannst du danach jederzeit hinzufügen.").foregroundStyle(.secondary)
+            GroupBox("1. Erste Datei oder erster Ordner") {
                 HStack {
                     if let kind = model.config.effectiveBackupItems.first?.sourceKind ?? model.config.sourceKind {
                         Image(systemName: kind == .directory ? "folder.fill" : "doc.fill").foregroundStyle(.teal)
@@ -182,7 +145,7 @@ private struct SetupView: View {
                     Button("Datei oder Ordner auswählen …") { Task { await model.chooseSource() } }
                 }.padding(.vertical, 4)
             }
-            GroupBox("4. Privater Backup-Ordner") {
+            GroupBox("2. Privater Backup-Ordner") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack { Text(model.config.effectiveBackupItems.first?.destinationDisplayName ?? model.config.destinationDisplayName ?? "Noch nicht ausgewählt"); Spacer(); Button("Ordner auswählen …") { Task { await model.chooseDestination() } } }
                     Toggle("Ich bestätige: Dieser Backup-Ordner ist privat und nicht mit anderen geteilt.", isOn: $model.privateTargetConfirmation)
@@ -191,9 +154,11 @@ private struct SetupView: View {
             HStack {
                 Button("PunkteRetter beenden") { NSApp.terminate(nil) }
                 Spacer()
-                Button("Einrichtung abschließen") { Task { await model.completeSetup() } }.buttonStyle(.borderedProminent).disabled(!mailVerified || model.mailTestInProgress)
+                Button("Einrichtung abschließen") { Task { await model.completeSetup() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.config.effectiveBackupItems.isEmpty || !model.privateTargetConfirmation)
             }
-        }.padding(28).frame(width: 720, height: 690)
+        }.padding(28).frame(width: 720, height: 520)
     }
 }
 
@@ -236,24 +201,6 @@ struct SettingsView: View {
                     Spacer()
                     Button("Alle Quellen prüfen") { model.checkAllSources() }
                     Button("Alle Ziele prüfen") { model.checkAllDestinations() }
-                }
-            }
-
-            Section("E-Mail") {
-                TextField("Benachrichtigungsadresse", text: $model.config.notificationAddress)
-                HStack {
-                    Button("Konten laden") { model.refreshAccounts() }
-                    if !model.accounts.isEmpty {
-                        Picker("Versandkonto", selection: Binding(get: { ((model.config.selectedMailAccountID ?? "") + "|" + (model.config.selectedMailSenderAddress ?? "").lowercased()) }, set: { selected in if let account = model.accounts.first(where: { $0.id == selected }) { model.selectMailAccount(account) } })) {
-                            ForEach(model.accounts) { account in Text("\(account.displayName) – \(account.senderAddress)").tag(account.id) }
-                        }
-                    }
-                }
-                HStack {
-                    Button("Versandkonto prüfen") { model.checkMailAccount() }
-                    Button("Testmail senden") { Task { _ = await model.testMail() } }
-                        .disabled(model.mailTestInProgress)
-                    if model.mailTestInProgress { ProgressView().controlSize(.small) }
                 }
             }
 

@@ -28,18 +28,6 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.component(.minute, from: slots.last!), 30)
     }
 
-    func testWarningThursday1445() {
-        let c = brusselsCalendar()
-        let w = Schedule.warningCheck(forWeekContaining: date("2026-09-08T12:00:00+02:00"), calendar: c)!
-        XCTAssertEqual(c.component(.weekday, from: w), 5)
-        XCTAssertEqual(c.component(.hour, from: w), 14)
-        XCTAssertEqual(c.component(.minute, from: w), 45)
-
-        let state = RuntimeState()
-        XCTAssertFalse(Schedule.isWarningDue(now: date("2026-09-10T14:44:59+02:00"), state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
-        XCTAssertTrue(Schedule.isWarningDue(now: date("2026-09-10T14:45:00+02:00"), state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
-    }
-
     func testNoSecondBackupSameWeek() {
         let c = brusselsCalendar()
         let now = date("2026-09-09T10:02:00+02:00")
@@ -194,8 +182,10 @@ final class CoreTests: XCTestCase {
         let json = #"{"version":1,"notificationAddress":"a@b.be","selectedMailAccountID":null,"selectedMailAccountDisplayName":null,"selectedMailSenderAddress":null,"verifiedMailSelectionFingerprint":null,"sourceBookmark":null,"destinationBookmark":null,"sourceDisplayName":null,"destinationDisplayName":null,"targetConfirmedPrivate":false,"automationEnabled":false,"setupCompleted":false,"quietModeUntil":null}"#.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(AppConfiguration.self, from: json)
         XCTAssertNil(decoded.backupItems)
-        XCTAssertNil(decoded.lastMailTestFailureReason)
         XCTAssertTrue(decoded.effectiveBackupItems.isEmpty)
+        let migrated = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        XCTAssertFalse(migrated.contains("notificationAddress"))
+        XCTAssertFalse(migrated.contains("selectedMailAccountID"))
     }
 
     func testLegacyConfigurationMapsToDeterministicBackupItem() {
@@ -212,29 +202,13 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(items[0].targetConfirmedPrivate)
     }
 
-    func testEmailValidation() {
-        XCTAssertTrue(Validation.isValidEmailSyntax("lehrkraft@example.invalid"))
-        XCTAssertFalse(Validation.isValidEmailSyntax("lehrkraft@@example.invalid"))
-        XCTAssertFalse(Validation.isValidEmailSyntax("lehrkraft@example"))
-    }
-
-    func testQuietModeSuppressesWarning() {
-        let c = brusselsCalendar()
-        let now = date("2026-09-10T15:00:00+02:00")
-        var state = RuntimeState()
-        state.lastSuccessfulWeek = nil
-        XCTAssertFalse(Schedule.isWarningDue(now: now, state: state, quietModeUntil: date("2026-09-11T00:00:00+02:00"), automationEnabled: true, calendar: c))
-        XCTAssertTrue(Schedule.isWarningDue(now: now, state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
-    }
-
     func testQuietModeIncludesEntireSelectedDate() {
         let c = brusselsCalendar()
         let selected = date("2026-09-10T00:00:00+02:00")
         let end = Schedule.quietModeEndOfDay(for: selected, calendar: c)
         XCTAssertEqual(end, date("2026-09-11T00:00:00+02:00"))
-        let state = RuntimeState()
         let thursdayAfternoon = date("2026-09-10T15:00:00+02:00")
-        XCTAssertFalse(Schedule.isWarningDue(now: thursdayAfternoon, state: state, quietModeUntil: selected, automationEnabled: true, calendar: c))
+        XCTAssertTrue(Schedule.isQuietModeActive(now: thursdayAfternoon, quietModeUntil: selected, calendar: c))
     }
 
     func testQuietModePausesAutomaticBackupButAllowsManualBackup() {
@@ -268,85 +242,6 @@ final class CoreTests: XCTestCase {
         ))
     }
 
-    func testWarningOnlyOncePerWeek() {
-        let c = brusselsCalendar()
-        let now = date("2026-09-10T15:00:00+02:00")
-        var state = RuntimeState()
-        state.warningSentWeek = Schedule.isoWeek(for: now, calendar: c)
-        XCTAssertFalse(Schedule.isWarningDue(now: now, state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
-    }
-
-    func testQueuedWarningRemainsDueForRetry() {
-        let c = brusselsCalendar()
-        let now = date("2026-09-10T15:00:00+02:00")
-        var state = RuntimeState()
-        state.warningQueuedWeek = Schedule.isoWeek(for: now, calendar: c)
-        XCTAssertTrue(Schedule.isWarningDue(now: now, state: state, quietModeUntil: nil, automationEnabled: true, calendar: c))
-    }
-
-    func testOverdueWarningSurvivesISOWeekRollover() {
-        let c = brusselsCalendar()
-        let previous = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
-        let due = Schedule.warningWeekDue(
-            now: date("2026-09-14T09:00:00+02:00"),
-            completedWeeks: [],
-            warningSentWeek: nil,
-            warningQueuedWeek: nil,
-            quietModeUntil: nil,
-            automationEnabled: true,
-            configurationEstablishedAt: date("2026-09-01T09:00:00+02:00"),
-            calendar: c
-        )
-        XCTAssertEqual(due, previous)
-    }
-
-    func testNewConfigurationDoesNotWarnForEarlierWeek() {
-        let c = brusselsCalendar()
-        let due = Schedule.warningWeekDue(
-            now: date("2026-09-14T09:00:00+02:00"),
-            completedWeeks: [],
-            warningSentWeek: nil,
-            warningQueuedWeek: nil,
-            quietModeUntil: nil,
-            automationEnabled: true,
-            configurationEstablishedAt: date("2026-09-14T08:30:00+02:00"),
-            calendar: c
-        )
-        XCTAssertNil(due)
-    }
-
-    func testQueuedWarningRemainsDueAfterWeekRollover() {
-        let c = brusselsCalendar()
-        let previous = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
-        let due = Schedule.warningWeekDue(
-            now: date("2026-09-16T09:00:00+02:00"),
-            completedWeeks: [],
-            warningSentWeek: nil,
-            warningQueuedWeek: previous,
-            quietModeUntil: nil,
-            automationEnabled: true,
-            configurationEstablishedAt: date("2026-09-01T09:00:00+02:00"),
-            calendar: c
-        )
-        XCTAssertEqual(due, previous)
-    }
-
-    func testCompletedPreviousWeekDoesNotProduceOverdueWarning() {
-        let c = brusselsCalendar()
-        let previous = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
-        let due = Schedule.warningWeekDue(
-            now: date("2026-09-14T09:00:00+02:00"),
-            completedWeeks: [previous],
-            warningSentWeek: nil,
-            warningQueuedWeek: previous,
-            quietModeUntil: nil,
-            automationEnabled: true,
-            configurationEstablishedAt: date("2026-09-01T09:00:00+02:00"),
-            calendar: c
-        )
-        XCTAssertNil(due)
-    }
-
     func testNextAttemptMovesToNextWeekAfterSuccess() {
         let c = brusselsCalendar()
         let now = date("2026-09-09T10:00:00+02:00")
@@ -365,7 +260,7 @@ final class CoreTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = AtomicJSONStore<RuntimeState>(url: dir.appendingPathComponent("state.json"))
-        var state = RuntimeState(); state.lastFailureReason = "Test"; state.warningQueuedWeek = WeekID(yearForWeekOfYear: 2026, weekOfYear: 37)
+        var state = RuntimeState(); state.lastFailureReason = "Test"
         try await store.save(state)
         let loaded = try await store.load(default: RuntimeState())
         XCTAssertEqual(loaded, state)
@@ -390,6 +285,9 @@ final class CoreTests: XCTestCase {
     func testRuntimeStateDecodesWithoutPerItemFailuresAndTracksThemSeparately() throws {
         let json = #"{"records":[],"lastSuccessfulWeek":null,"warningSentWeek":null,"warningQueuedWeek":null,"lastFailureReason":null,"lastAttemptAt":null,"operationInProgress":false}"#.data(using: .utf8)!
         var state = try JSONDecoder().decode(RuntimeState.self, from: json)
+        let migrated = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
+        XCTAssertFalse(migrated.contains("warningSentWeek"))
+        XCTAssertFalse(migrated.contains("warningQueuedWeek"))
         let first = UUID(), second = UUID()
         XCTAssertNil(state.failureReason(itemID: first))
         state.setFailureReason("Quelle fehlt", itemID: first)
